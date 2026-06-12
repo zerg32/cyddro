@@ -104,7 +104,14 @@ void actionScreenTouch(TS_Point p);
 void actionScreenRelease(TS_Point p);
 
 inline bool axisVisible(int c) {
-  return calipers[c].enabled && !(hideThirdAxis && c == 2);
+  return (c >= 0 && c < caliperCount) && calipers[c].enabled;
+}
+
+inline bool anyAxisVisible() {
+  for (int c = 0; c < caliperCount; c++) {
+    if (axisVisible(c)) return true;
+  }
+  return false;
 }
 
 // forward declarations
@@ -267,7 +274,7 @@ inline bool axisVisible(int c) {
       {1, axisVisible(0), "Z", DROwidth, 0, DRObuttonWidth, DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroXpressed},
       {1, axisVisible(1), "Z", DROwidth, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroYpressed},
       {1, axisVisible(2), "Z", DROwidth, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroZpressed},
-      {1, 1, "Z", DROwidth, DROheight, DRObuttonWidth * 2 + buttonSpacing,  DRObuttonheight, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zAllpressed},
+      {1, anyAxisVisible(), "Z", DROwidth, DROheight, DRObuttonWidth * 2 + buttonSpacing,  DRObuttonheight, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zAllpressed},
 
       // half buttons
       {1, axisVisible(0), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, 0, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfXpressed},
@@ -275,9 +282,9 @@ inline bool axisVisible(int c) {
       {1, axisVisible(2), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfZpressed},
       
       // Coordinate select buttons
-      {1, 1, "C1", (DRObuttonWidth + buttonSpacing) * 0, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 1, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord1pressed},
-      {1, 1, "C2", (DRObuttonWidth + buttonSpacing) * 1, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 1, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord2pressed},
-      {1, 1, "C3", (DRObuttonWidth + buttonSpacing) * 2, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 1, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord3pressed},
+      {1, 1, "C1", (DRObuttonWidth + buttonSpacing) * 0, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 2, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord1pressed},
+      {1, 1, "C2", (DRObuttonWidth + buttonSpacing) * 1, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 2, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord2pressed},
+      {1, 1, "C3", (DRObuttonWidth + buttonSpacing) * 2, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 2, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord3pressed},
       {1, 1, "C4", (DRObuttonWidth + buttonSpacing) * 3, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 1, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord4pressed},
 
       // hold button
@@ -1162,11 +1169,11 @@ void pageSpecificOperations() {
 
   // page 3: keypad
 
-    // display number ented via keypad
+    // display number entered via keypad
       if (displayingPage == 3) {
-        tft.setFreeFont(&sevenSeg16pt7b);      // 7 seg font (small)
+        tft.setFreeFont(MENU_FONT);
         tft.setTextColor(TFT_BLUE, TFT_BLACK);
-        tft.setTextSize(1);
+        tft.setTextSize(MENU_SIZE);
         tft.setTextPadding( tft.textWidth("8") * noDigitsOnNumEntry );  
         tft.drawString(keyEnteredNumber, keyX, keyY - 30 );       
       }

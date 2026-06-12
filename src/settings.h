@@ -83,7 +83,6 @@
 
     // define calipers in use
       const int caliperCount = 2;               // number of calipers below
-      const bool hideThirdAxis = true;           // set to true for 2-axis lathe use (hides the Z axis)
       
       caliperStruct calipers[] {  
         // X and Z axes with BIN6 protocol (74HC14 level shifter)
@@ -91,9 +90,9 @@
         
         { "X", 1, 27, 22, 0, 0, 0.0, 0, {0.0} },        // CLK=27 DATA=22
         
-        { "Y", 0, 17, 16, 0, 0, 0.0, 0, {0.0} },        // disabled Y
+        { "Z", 1, 17, 16, 0, 0, 0.0, 0, {0.0} },        // disabled Y
         
-        { "Z", 1, 35,  5, 0, 0, 0.0, 0, {0.0} }         // CLK=35 DATA=5  (sacrifices SD card CS)
+        { "Y", 1, 35,  5, 0, 0, 0.0, 0, {0.0} }         // CLK=35 DATA=5  (sacrifices SD card CS)
         
       };
 
