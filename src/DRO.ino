@@ -97,6 +97,15 @@ String enteredGcode;                      // store for the entered gcode on web 
   extern int wifiok;                      // flag if wifi connection is ok (defined below)
   #include <wifi_dro.h>
 
+class WiFiClient;
+struct TS_Point;
+void actionScreenTouch(TS_Point p);
+void actionScreenRelease(TS_Point p);
+
+inline bool axisVisible(int c) {
+  return calipers[c].enabled && !(hideThirdAxis && c == 2);
+}
+
 // forward declarations
   //void log_system_message(String smes);   // in standard.h
   void handleRoot();
@@ -254,15 +263,15 @@ String enteredGcode;                      // store for the entered gcode on web 
     // Page 1
 
       // Zero buttons
-      {1, calipers[0].enabled, "Z", DROwidth, 0, DRObuttonWidth, DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroXpressed},
-      {1, calipers[1].enabled, "Z", DROwidth, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroYpressed},
-      {1, calipers[2].enabled, "Z", DROwidth, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroZpressed},
+      {1, axisVisible(0), "Z", DROwidth, 0, DRObuttonWidth, DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroXpressed},
+      {1, axisVisible(1), "Z", DROwidth, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroYpressed},
+      {1, axisVisible(2), "Z", DROwidth, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroZpressed},
       {1, 1, "Z", DROwidth, DROheight, DRObuttonWidth * 2 + buttonSpacing,  DRObuttonheight, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zAllpressed},
 
       // half buttons
-      {1, calipers[0].enabled, "1/2", DROwidth + DRObuttonWidth + buttonSpacing, 0, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfXpressed},
-      {1, calipers[1].enabled, "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfYpressed},
-      {1, calipers[2].enabled, "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfZpressed},
+      {1, axisVisible(0), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, 0, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfXpressed},
+      {1, axisVisible(1), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfYpressed},
+      {1, axisVisible(2), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfZpressed},
       
       // Coordinate select buttons
       {1, 1, "C1", (DRObuttonWidth + buttonSpacing) * 0, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 1, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord1pressed},
@@ -301,9 +310,9 @@ String enteredGcode;                      // store for the entered gcode on web 
       {3, 1, "-", keyX + 2 * (keyWidth + keySpacing), keyY + 3 * (keyHeight + keySpacing), keyWidth, keyHeight, TFT_WHITE, 1, TFT_ORANGE, TFT_BLACK, &butnW[widgetCount--], &buttonKeyMinusPressed},
       
       // set DRO reading to entered number
-      {3, calipers[0].enabled, "set" + calipers[0].title, 0, SCREEN_HEIGHT - 3 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setxPressed},
-      {3, calipers[1].enabled, "set" + calipers[1].title, 0, SCREEN_HEIGHT - 2 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setyPressed},
-      {3, calipers[2].enabled, "set" + calipers[2].title, 0, SCREEN_HEIGHT - 1 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setzPressed},
+      {3, axisVisible(0), "set" + calipers[0].title, 0, SCREEN_HEIGHT - 3 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setxPressed},
+      {3, axisVisible(1), "set" + calipers[1].title, 0, SCREEN_HEIGHT - 2 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setyPressed},
+      {3, axisVisible(2), "set" + calipers[2].title, 0, SCREEN_HEIGHT - 1 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setzPressed},
  
     // page 4
       {4, 1, "Prev", p4ButtonSpacing * 0, SCREEN_HEIGHT - DRObuttonheight, p4ButtonSpacing - p4ButtonGap, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonKeyStepPrevPressed},
@@ -624,7 +633,7 @@ void setup() {
   
   // caliper gpio pins
     for (int x=0; x < caliperCount; x++) {
-      if (calipers[x].enabled) {
+      if (axisVisible(x)) {
         pinMode(calipers[x].clockPIN, INPUT);
         pinMode(calipers[x].dataPIN, INPUT);
       }
@@ -642,7 +651,7 @@ void setup() {
 
   // zero all DRO readings
     for (int c=0; c < caliperCount; c++) {
-      if (calipers[c].enabled) log_system_message("Axis " + calipers[c].title + " initial reading: " + String(calipers[c].reading));
+      if (axisVisible(c)) log_system_message("Axis " + calipers[c].title + " initial reading: " + String(calipers[c].reading));
       for (int i=0; i < noOfCoordinates; i++) {
         calipers[c].adj[i] = calipers[c].reading;
       }
@@ -718,7 +727,7 @@ bool refreshCalipers(int cRetry, bool display) {
 
   // Digital Calipers
     for (int c=0; c < caliperCount; c++) {
-      if (calipers[c].enabled) {                                   // if caliper is active
+      if (axisVisible(c)) {                                   // if caliper is active
         tCount = cRetry;                                           // reset try counter 
         while (tCount > 0 && tOK[c] == 0) {
           float tRead = readCaliper(c);                            // read data from caliper 
@@ -760,7 +769,7 @@ bool refreshCalipers(int cRetry, bool display) {
     }
     
     bool tOKres = 1;
-    for (int c=0; c < caliperCount; c++) if (tOK[c] == 0 && calipers[c].enabled) tOKres = 0;
+    for (int c=0; c < caliperCount; c++) if (tOK[c] == 0 && axisVisible(c)) tOKres = 0;
     return tOKres;
 }    
 
@@ -844,7 +853,7 @@ void handleRoot() {
     // coordinate selection checkboxes
       client.println("Coordinates to process: ");
       for (int c=0; c < caliperCount; c++) {
-        if (calipers[c].enabled) client.print(calipers[c].title + "<INPUT type='checkbox' name='GA" + calipers[c].title + "' value='1'>&ensp;");
+        if (axisVisible(c)) client.print(calipers[c].title + "<INPUT type='checkbox' name='GA" + calipers[c].title + "' value='1'>&ensp;");
       } 
 
     // misc option radio buttons
@@ -908,7 +917,7 @@ void rootUserInput(WiFiClient &client) {
         // set coordinates to use from radio buttons
           bool tFlag = 0;
           for (int c=0; c < caliperCount; c++) {
-            if (server.arg("GA" + calipers[c].title) == "1") {    // if this axis is selected
+            if (axisVisible(c) && server.arg("GA" + calipers[c].title) == "1") {    // if this axis is selected
               inc[c] = 1;
               tFlag = 1;
             } else {
@@ -954,7 +963,7 @@ void handleData(){
 
     // display readings  
       for (int c=0; c < caliperCount; c++) {                                    // step through each caliper
-        if (calipers[c].enabled) {
+        if (axisVisible(c)) {
           reply += "<th>" + calipers[c].title + "</th>";
           for (int i=0; i < noOfCoordinates; i++) {                             // step through each coordinate systems
             reply += "</td><td>";                                               // next table column
@@ -1446,7 +1455,7 @@ void displayReadings(bool clearFirst) {
     // calipers
       for (int c=0; c < caliperCount; c++) {
         if (clearFirst) tft.drawString(" ", 0, c * tft.fontHeight());                             // clear display first if requested
-        if (calipers[c].enabled) {
+        if (axisVisible(c)) {
           float tReading;
           float caliperAdj;
           unsigned long lastRead;

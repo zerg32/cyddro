@@ -82,7 +82,8 @@
       };
 
     // define calipers in use
-      const int caliperCount = 3;               // number of calipers below
+      const int caliperCount = 2;               // number of calipers below
+      const bool hideThirdAxis = true;           // set to true for 2-axis lathe use (hides the Z axis)
       
       caliperStruct calipers[] {  
         // Items: Axis name (single character, upper case), if enabled, clock gpio pin, data gpio pin, direction (1=reversed), 0, 0.0, 0, {0.0}
