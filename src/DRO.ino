@@ -94,7 +94,7 @@ String enteredGcode;                      // store for the entered gcode on web 
 
 // wifi
   void log_system_message(String smes);   // in standard.h
-  int wifiok = 0;                         // flag if wifi connection is ok 
+  extern int wifiok;                      // flag if wifi connection is ok (defined below)
   #include <wifi_dro.h>
 
 // forward declarations
@@ -316,7 +316,7 @@ unsigned long wifiDownTime = 0;           // if wifi connection is lost this rec
 bool showPress = 0;                       // show touch data on screen (for calibration / testing)
 bool showDROerrors = 0;                   // show errors on DRO readings display 
 
-#include "wifi.h"                         // Load the Wifi / NTP stuff
+#include <WiFi.h>                         // Load the Wifi / NTP stuff
 #include "standard.h"                     // Some standard procedures
 
 #include <EEPROM.h>                       // for storing settings in eeprom (not used at present)
