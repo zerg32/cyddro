@@ -20,9 +20,19 @@ jobs:
             ~/.platformio
           key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
 
-      - uses: niall-byrne/platformio-runner@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          environments: cyd,cyd-sim
+          python-version: '3.12'
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build cyd
+        run: pio run -e cyd
+
+      - name: Build cyd-sim
+        run: pio run -e cyd-sim
 
       - name: Upload cyd firmware
         uses: actions/upload-artifact@v4
