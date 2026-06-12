@@ -10,12 +10,21 @@
 #define TFT_BACKLIGHT_ON HIGH
 
 #define TFT_BL   21
-#define TFT_MISO 12
-#define TFT_MOSI 13
-#define TFT_SCLK 14
 #define TFT_CS   15
 #define TFT_DC    2
 #define TFT_RST  -1
+
+// Real CYD dual-USB: TFT on HSPI (12,13,14)
+// Wokwi CYD:        TFT on VSPI (19,23,18)
+#ifdef WOKWI
+  #define TFT_MISO 19
+  #define TFT_MOSI 23
+  #define TFT_SCLK 18
+#else
+  #define TFT_MISO 12
+  #define TFT_MOSI 13
+  #define TFT_SCLK 14
+#endif
 
 #define XPT2046_IRQ   36
 #define XPT2046_MOSI  32
