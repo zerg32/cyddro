@@ -28,7 +28,7 @@
 
   const String OTAPassword = "password";                // Password to enable OTA (supplied as - http://<ip address>?pwd=xxxx )
 
-  const bool serialDebug = 0;                            // provide debug info on serial port  (disable if using Tx or Rx gpio pins for caliper)
+  const bool serialDebug = 1;                            // provide debug info on serial port  (disable if using Tx or Rx gpio pins for caliper)
   const int serialSpeed = 115200;                        // Serial data speed to use  
 
   const bool invertCaliperDataSignals = 1;               // If using transistors on the data and clock pins the signals will be inverted so set this to 1

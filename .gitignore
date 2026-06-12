@@ -1,1 +1,5 @@
 .pio/
+
+# Ignore external TFT_eSPI library folder and local setup overrides
+lib/TFT_eSPI/
+lib/TFT_eSPI_Config/User_Setup.h
