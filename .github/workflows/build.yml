@@ -1,0 +1,39 @@
+name: build
+
+on:
+  push:
+    branches: [main, bin6, platformio-conversion]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
+
+      - uses: niall-byrne/platformio-runner@v1
+        with:
+          environments: cyd,cyd-sim
+
+      - name: Upload cyd firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-cyd
+          path: .pio/build/cyd/firmware.bin
+          retention-days: 30
+
+      - name: Upload cyd-sim firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-cyd-sim
+          path: .pio/build/cyd-sim/firmware.bin
+          retention-days: 30
