@@ -199,6 +199,13 @@
       } 
   }
 
+  // force touchscreen calibration
+  void twoCalibratePressed() {
+    log_system_message("button: calibrate touch screen");
+    calibrateTouchscreen(true);
+    drawScreen(displayingPage);
+  }
+
 
 // -----------------------------------------------------------------------------------------
 // page 3

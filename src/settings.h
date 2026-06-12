@@ -28,7 +28,7 @@
 
   const String OTAPassword = "password";                // Password to enable OTA (supplied as - http://<ip address>?pwd=xxxx )
 
-  const bool serialDebug = 0;                            // provide debug info on serial port  (disable if using Tx or Rx gpio pins for caliper)
+  const bool serialDebug = 1;                            // provide debug info on serial port  (disable if using Tx or Rx gpio pins for caliper)
   const int serialSpeed = 115200;                        // Serial data speed to use  
 
   const bool invertCaliperDataSignals = 0;               // BIN6 reader handles inversion internally
@@ -82,7 +82,8 @@
       };
 
     // define calipers in use
-      const int caliperCount = 3;               // number of calipers below
+      const int caliperCount = 2;               // number of calipers below
+      const bool hideThirdAxis = true;           // set to true for 2-axis lathe use (hides the Z axis)
       
       caliperStruct calipers[] {  
         // X and Z axes with BIN6 protocol (74HC14 level shifter)

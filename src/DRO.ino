@@ -98,6 +98,15 @@ String enteredGcode;                      // store for the entered gcode on web 
   extern int wifiok;                      // flag if wifi connection is ok (defined below)
   #include <wifi_dro.h>
 
+class WiFiClient;
+struct TS_Point;
+void actionScreenTouch(TS_Point p);
+void actionScreenRelease(TS_Point p);
+
+inline bool axisVisible(int c) {
+  return calipers[c].enabled && !(hideThirdAxis && c == 2);
+}
+
 // forward declarations
   //void log_system_message(String smes);   // in standard.h
   void handleRoot();
@@ -113,6 +122,14 @@ String enteredGcode;                      // store for the entered gcode on web 
   void plotGraph(WiFiClient &client, int axis1, int axis2);
   float mapf(float x, float in_min, float in_max, float out_min, float out_max);
   void loadTestPositions();
+  void calibrateTouchscreen(bool force = false);
+  void caliperPollTask(void *pvParameters);
+
+  const uint16_t TOUCH_CAL_SIGNATURE = 0xA5A5;
+  portMUX_TYPE caliperMux = portMUX_INITIALIZER_UNLOCKED;
+  TaskHandle_t caliperTaskHandle = NULL;
+  volatile bool caliperDisplayUpdateRequested = false;
+  bool touchCalibrationValid = false;
   
 
 
@@ -134,6 +151,10 @@ String enteredGcode;                      // store for the entered gcode on web 
     MeterWidget dro  = MeterWidget(&tft);       // Meter used at startup
 
     unsigned long lastTouch = 0;                // last time touchscreen button was pressed
+    int touchLeft = TOUCH_LEFT;                 // runtime touchscreen calibration bounds
+    int touchRight = TOUCH_RIGHT;
+    int touchTop = TOUCH_TOP;
+    int touchBottom = TOUCH_BOTTOM;
     
     // entered gcode
       float gcode[caliperCount][maxGcodeStringLines];    // store for positions extracted from the gcode
@@ -243,15 +264,15 @@ String enteredGcode;                      // store for the entered gcode on web 
     // Page 1
 
       // Zero buttons
-      {1, calipers[0].enabled, "Z", DROwidth, 0, DRObuttonWidth, DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroXpressed},
-      {1, calipers[1].enabled, "Z", DROwidth, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroYpressed},
-      {1, calipers[2].enabled, "Z", DROwidth, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroZpressed},
+      {1, axisVisible(0), "Z", DROwidth, 0, DRObuttonWidth, DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroXpressed},
+      {1, axisVisible(1), "Z", DROwidth, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroYpressed},
+      {1, axisVisible(2), "Z", DROwidth, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zeroZpressed},
       {1, 1, "Z", DROwidth, DROheight, DRObuttonWidth * 2 + buttonSpacing,  DRObuttonheight, TFT_WHITE, 1, TFT_DARKGREEN, TFT_BLACK, &butnW[widgetCount--], &zAllpressed},
 
       // half buttons
-      {1, calipers[0].enabled, "1/2", DROwidth + DRObuttonWidth + buttonSpacing, 0, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfXpressed},
-      {1, calipers[1].enabled, "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfYpressed},
-      {1, calipers[2].enabled, "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfZpressed},
+      {1, axisVisible(0), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, 0, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfXpressed},
+      {1, axisVisible(1), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 1, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfYpressed},
+      {1, axisVisible(2), "1/2", DROwidth + DRObuttonWidth + buttonSpacing, DROdbuttonPlacement * 2, DRObuttonWidth,  DRObuttonheight * 2 - buttonSpacing, TFT_WHITE, 1, TFT_DARKCYAN, TFT_BLACK, &butnW[widgetCount--], &halfZpressed},
       
       // Coordinate select buttons
       {1, 1, "C1", (DRObuttonWidth + buttonSpacing) * 0, DROheight, DRObuttonWidth,  DRObuttonheight, TFT_WHITE, 1, TFT_MAROON, TFT_BLACK, &butnW[widgetCount--], &coord1pressed},
@@ -265,6 +286,7 @@ String enteredGcode;                      // store for the entered gcode on web 
     // page 2
     
       {2, 1, "En. Wifi", 0, SCREEN_HEIGHT - (DRObuttonheight + p2buttonSpacing) * 1, 140, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &twoWifiPressed},
+      {2, 1, "Calib", p2secondColumn, SCREEN_HEIGHT - (DRObuttonheight + p2buttonSpacing) * 2, 120, DRObuttonheight, TFT_WHITE, 1, TFT_YELLOW, TFT_BLACK, &butnW[widgetCount--], &twoCalibratePressed},
       {2, 1, "Reboot", p2secondColumn, SCREEN_HEIGHT - (DRObuttonheight + p2buttonSpacing) * 1, 120, DRObuttonheight, TFT_WHITE, 1, TFT_RED, TFT_BLACK, &butnW[widgetCount--], &twoRebootPressed},
       {2, 1, "Store", p2secondColumn, (DRObuttonheight + p2buttonSpacing) * 0, 120, DRObuttonheight, TFT_WHITE, 1, TFT_YELLOW, TFT_BLACK, &butnW[widgetCount--], &twoStorePressed},
       {2, 1, "Recall", p2secondColumn, (DRObuttonheight + p2buttonSpacing) * 1, 120, DRObuttonheight, TFT_WHITE, 1, TFT_YELLOW, TFT_BLACK, &butnW[widgetCount--], &twoRecallPressed},
@@ -289,9 +311,9 @@ String enteredGcode;                      // store for the entered gcode on web 
       {3, 1, "-", keyX + 2 * (keyWidth + keySpacing), keyY + 3 * (keyHeight + keySpacing), keyWidth, keyHeight, TFT_WHITE, 1, TFT_ORANGE, TFT_BLACK, &butnW[widgetCount--], &buttonKeyMinusPressed},
       
       // set DRO reading to entered number
-      {3, calipers[0].enabled, "set" + calipers[0].title, 0, SCREEN_HEIGHT - 3 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setxPressed},
-      {3, calipers[1].enabled, "set" + calipers[1].title, 0, SCREEN_HEIGHT - 2 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setyPressed},
-      {3, calipers[2].enabled, "set" + calipers[2].title, 0, SCREEN_HEIGHT - 1 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setzPressed},
+      {3, axisVisible(0), "set" + calipers[0].title, 0, SCREEN_HEIGHT - 3 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setxPressed},
+      {3, axisVisible(1), "set" + calipers[1].title, 0, SCREEN_HEIGHT - 2 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setyPressed},
+      {3, axisVisible(2), "set" + calipers[2].title, 0, SCREEN_HEIGHT - 1 * (keyHeight + keySpacing), setKeyWidth, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonp3setzPressed},
  
     // page 4
       {4, 1, "Prev", p4ButtonSpacing * 0, SCREEN_HEIGHT - DRObuttonheight, p4ButtonSpacing - p4ButtonGap, DRObuttonheight, TFT_WHITE, 1, TFT_GREEN, TFT_BLACK, &butnW[widgetCount--], &buttonKeyStepPrevPressed},
@@ -378,6 +400,120 @@ void startTheWifi() {
         }
     }
 
+void waitForTouchRelease() {
+  while (ts.touched()) {
+    delay(20);
+  }
+}
+
+TS_Point readStableTouch() {
+  const unsigned long timeoutMs = 30000;
+  unsigned long start = millis();
+  while (millis() - start < timeoutMs) {
+    if (ts.touched()) {
+      TS_Point p = ts.getPoint();
+      if (p.z > 0) {
+        long sumX = p.x;
+        long sumY = p.y;
+        int count = 1;
+        for (int i = 0; i < 4; i++) {
+          delay(10);
+          if (ts.touched()) {
+            TS_Point q = ts.getPoint();
+            if (q.z > 0) {
+              sumX += q.x;
+              sumY += q.y;
+              count++;
+            }
+          }
+        }
+        p.x = sumX / count;
+        p.y = sumY / count;
+        waitForTouchRelease();
+        return p;
+      }
+    }
+    delay(10);
+  }
+  TS_Point invalid;
+  invalid.x = -1;
+  invalid.y = -1;
+  invalid.z = 0;
+  return invalid;
+}
+
+void calibrateTouchscreen(bool force) {
+  if (touchCalibrationValid && !force) {
+    return;
+  }
+  tft.fillScreen(TFT_BLACK);
+  tft.setFreeFont(FM9);
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString("Touchscreen calibration", 10, 10);
+  tft.drawString("Touch each cross in turn.", 10, 30);
+  tft.drawString("If you cannot touch the screen, calibration", 10, 50);
+  tft.drawString("will continue using default settings.", 10, 70);
+  delay(1200);
+
+  const int margin = 20;
+  const int targets[4][2] = {
+    {margin, margin},
+    {SCREEN_WIDTH - margin, margin},
+    {margin, SCREEN_HEIGHT - margin},
+    {SCREEN_WIDTH - margin, SCREEN_HEIGHT - margin}
+  };
+  long rawX[4] = {0,0,0,0};
+  long rawY[4] = {0,0,0,0};
+
+  if (touchCalibrationValid) {
+    return;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawString("Touch the cross", 10, 10);
+    tft.drawString("then release.", 10, 30);
+    const int cx = targets[i][0];
+    const int cy = targets[i][1];
+    tft.drawLine(cx - 12, cy, cx + 12, cy, TFT_RED);
+    tft.drawLine(cx, cy - 12, cx, cy + 12, TFT_RED);
+    tft.fillCircle(cx, cy, 5, TFT_YELLOW);
+
+    TS_Point p = readStableTouch();
+    if (p.x < 0 || p.y < 0) {
+      log_system_message("Touch calibration timed out; using defaults.");
+      touchLeft = TOUCH_LEFT;
+      touchRight = TOUCH_RIGHT;
+      touchTop = TOUCH_TOP;
+      touchBottom = TOUCH_BOTTOM;
+      touchCalibrationValid = false;
+      return;
+    }
+    rawX[i] = p.x;
+    rawY[i] = p.y;
+  }
+
+  touchLeft = (rawX[0] + rawX[2]) / 2;
+  touchRight = (rawX[1] + rawX[3]) / 2;
+  touchTop = (rawY[0] + rawY[1]) / 2;
+  touchBottom = (rawY[2] + rawY[3]) / 2;
+
+  if (touchLeft >= touchRight || touchTop >= touchBottom) {
+    log_system_message("Touch calibration invalid; using defaults.");
+    touchLeft = TOUCH_LEFT;
+    touchRight = TOUCH_RIGHT;
+    touchTop = TOUCH_TOP;
+    touchBottom = TOUCH_BOTTOM;
+    touchCalibrationValid = false;
+  } else {
+    touchCalibrationValid = true;
+    log_system_message("Touch calibration complete: " + String(touchLeft) + "," + String(touchRight) + "," + String(touchTop) + "," + String(touchBottom));
+    settingsEeprom(1);
+  }
+}
+
 
 // ---------------------------------------------------------------
 //    -SETUP     SETUP     SETUP     SETUP     SETUP     SETUP
@@ -429,7 +565,7 @@ void setup() {
 
   // if (serialDebug) Serial.setDebugOutput(true);             // to enable extra diagnostic info
 
-  //   settingsEeprom(0);                                      // read stored settings from eeprom
+    settingsEeprom(0);                                      // read stored settings from eeprom
 
   if (wifiEnabled) {
     // update screen
@@ -482,6 +618,7 @@ void setup() {
     mySpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
     ts.begin(mySpi);
     ts.setRotation(SCREEN_ROTATION);  
+    calibrateTouchscreen(false);
 
   // initialise buttons
     char tLabel[21]; 
@@ -495,8 +632,13 @@ void setup() {
   //delay(1000); 
   //tft.fillScreen(TFT_BLACK);             // Clear the screen 
   
-  // init BIN6 readers (interrupt-based, replaces old synchronous caliper reader)
-    bin6_init();
+  // caliper gpio pins
+    for (int x=0; x < caliperCount; x++) {
+      if (axisVisible(x)) {
+        pinMode(calipers[x].clockPIN, INPUT);
+        pinMode(calipers[x].dataPIN, INPUT);
+      }
+    }
   
   // get readings from BIN6 scales
     int tCount = 4;                      // Maximum number of attempts
@@ -510,7 +652,7 @@ void setup() {
 
   // zero all DRO readings
     for (int c=0; c < caliperCount; c++) {
-      if (calipers[c].enabled) log_system_message("Axis " + calipers[c].title + " initial reading: " + String(calipers[c].reading));
+      if (axisVisible(c)) log_system_message("Axis " + calipers[c].title + " initial reading: " + String(calipers[c].reading));
       for (int i=0; i < noOfCoordinates; i++) {
         calipers[c].adj[i] = calipers[c].reading;
       }
@@ -523,6 +665,11 @@ void setup() {
     if (widgetCount == 0) log_system_message("Button widget count is correct");
     if (widgetCount < 0)  log_system_message("ERROR: " + String(-widgetCount) + " more button widgets required!");
     if (widgetCount > 0)  log_system_message( "Note: " + String(widgetCount) + " too many button widgets have been created");
+
+  // start background caliper polling to keep touch/UI responsive
+    if (xTaskCreatePinnedToCore(caliperPollTask, "CaliperTask", 4096, NULL, 1, &caliperTaskHandle, 0) != pdPASS) {
+      if (serialDebug) Serial.println("Failed to create caliper poll task");
+    }
 }
 
 
@@ -534,11 +681,14 @@ void loop() {
 
   if(wifiEnabled) server.handleClient();                  // service any web page requests
 
-  #ifdef SIMULATE_SCALES
-    simulate_scales();
-  #endif
-
-  refreshCalipers(2);                                     // refresh readings from calipers 
+  bool updateRequired = false;
+  portENTER_CRITICAL(&caliperMux);
+  if (caliperDisplayUpdateRequested) {
+    updateRequired = true;
+    caliperDisplayUpdateRequested = false;
+  }
+  portEXIT_CRITICAL(&caliperMux);
+  if (updateRequired) displayReadings();
 
   // Touch screen
     bool st = ts.touched();                               // discover if touch screen is pressed
@@ -578,22 +728,30 @@ bool refreshCalipers(int cRetry, bool display) {
 
   // Digital Calipers
     for (int c=0; c < caliperCount; c++) {
-      if (calipers[c].enabled) {                                   // if caliper is active
+      if (axisVisible(c)) {                                   // if caliper is active
         tCount = cRetry;                                           // reset try counter 
         while (tCount > 0 && tOK[c] == 0) {
           float tRead = readCaliper(c);                            // read data from caliper 
-          if (tRead < lowestAllowedReading || tRead > highestAllowedReading) calipers[c].error = 1;     // verify reading is in valid range
-          if (calipers[c].error == 0) {                            // if caliper read data ok 
+          bool errorState = false;
+          if (tRead < lowestAllowedReading || tRead > highestAllowedReading) errorState = true;     // verify reading is in valid range
+          if (!errorState) {                            // if caliper read data ok 
             tOK[c] = 1;                                            // flag reading received 
+            bool changed = false;
+            portENTER_CRITICAL(&caliperMux);
             if (tRead != calipers[c].reading  || calipers[c].lastReadTime == 0) {                       // if reading has changed or this is forst reading
               calipers[c].reading = tRead;                         // store result in global variable 
-              refreshDisplayFlag = 1;                              // flag DRO display to update
               calipers[c].lastReadTime = millis();                 // log time of last reading received
+              changed = true;
             }
+            calipers[c].error = 0;
+            portEXIT_CRITICAL(&caliperMux);
+            if (changed) refreshDisplayFlag = 1;                              // flag DRO display to update
           } else {
-            // read error
-              if (serialDebug) Serial.println(calipers[c].title + " Caliper read failed: " + String(tRead));    
-              if (showDROerrors) refreshDisplayFlag = 1;           // if show errors set then flag to display the error
+            portENTER_CRITICAL(&caliperMux);
+            calipers[c].error = 1;
+            portEXIT_CRITICAL(&caliperMux);
+            if (serialDebug) Serial.println(calipers[c].title + " Caliper read failed: " + String(tRead));    
+            if (showDROerrors) refreshDisplayFlag = 1;           // if show errors set then flag to display the error
           }   
           tCount --;                                               // decrement try counter
           if (tOK[c] == 0) delay(11);                              // delay before retrying
@@ -601,12 +759,33 @@ bool refreshCalipers(int cRetry, bool display) {
       } else tOK[c] = 1;                                           // caliper is disabled so skip it
     }  
 
-    if (refreshDisplayFlag && display) displayReadings();          // display caliper readings 
+    if (refreshDisplayFlag) {
+      if (display) {
+        displayReadings();          // display caliper readings 
+      } else {
+        portENTER_CRITICAL(&caliperMux);
+        caliperDisplayUpdateRequested = true;
+        portEXIT_CRITICAL(&caliperMux);
+      }
+    }
     
     bool tOKres = 1;
-    for (int c=0; c < caliperCount; c++) if (tOK[c] == 0 && calipers[c].enabled) tOKres = 0;
+    for (int c=0; c < caliperCount; c++) if (tOK[c] == 0 && axisVisible(c)) tOKres = 0;
     return tOKres;
 }    
+
+
+// ----------------------------------------------------------------
+//      -background caliper polling task
+// ----------------------------------------------------------------
+
+void caliperPollTask(void *pvParameters) {
+  (void)pvParameters;
+  for (;;) {
+    refreshCalipers(2, false);
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
 
 
 // ----------------------------------------------------------------
@@ -675,7 +854,7 @@ void handleRoot() {
     // coordinate selection checkboxes
       client.println("Coordinates to process: ");
       for (int c=0; c < caliperCount; c++) {
-        if (calipers[c].enabled) client.print(calipers[c].title + "<INPUT type='checkbox' name='GA" + calipers[c].title + "' value='1'>&ensp;");
+        if (axisVisible(c)) client.print(calipers[c].title + "<INPUT type='checkbox' name='GA" + calipers[c].title + "' value='1'>&ensp;");
       } 
 
     // misc option radio buttons
@@ -739,7 +918,7 @@ void rootUserInput(WiFiClient &client) {
         // set coordinates to use from radio buttons
           bool tFlag = 0;
           for (int c=0; c < caliperCount; c++) {
-            if (server.arg("GA" + calipers[c].title) == "1") {    // if this axis is selected
+            if (axisVisible(c) && server.arg("GA" + calipers[c].title) == "1") {    // if this axis is selected
               inc[c] = 1;
               tFlag = 1;
             } else {
@@ -785,7 +964,7 @@ void handleData(){
 
     // display readings  
       for (int c=0; c < caliperCount; c++) {                                    // step through each caliper
-        if (calipers[c].enabled) {
+        if (axisVisible(c)) {
           reply += "<th>" + calipers[c].title + "</th>";
           for (int i=0; i < noOfCoordinates; i++) {                             // step through each coordinate systems
             reply += "</td><td>";                                               // next table column
@@ -841,11 +1020,13 @@ void handlePing(){
 
 void settingsEeprom(bool eDirection) {
 
-    const int dataRequired = 60;   // total size of eeprom space required (bytes)
+    const int dataRequired = 80;   // total size of eeprom space required (bytes)
 
     int currentEPos = 0;           // current position in eeprom
     float ts;                      // temp stores
     byte tts;
+    uint16_t touchSig;
+    int32_t touchValue;
 
     EEPROM.begin(dataRequired);
 
@@ -871,7 +1052,21 @@ void settingsEeprom(bool eDirection) {
         // current coordinate system in use
           EEPROM.get(currentEPos, currentCoord);     
           if (currentCoord < 0 || currentCoord > 2) currentCoord = 0;
-          currentEPos += sizeof(currentCoord);  
+          currentEPos += sizeof(currentCoord);
+
+        // touchscreen calibration data
+          EEPROM.get(currentEPos, touchSig);
+          currentEPos += sizeof(touchSig);
+          if (touchSig == TOUCH_CAL_SIGNATURE) {
+            EEPROM.get(currentEPos, touchValue); touchLeft = touchValue; currentEPos += sizeof(touchValue);
+            EEPROM.get(currentEPos, touchValue); touchRight = touchValue; currentEPos += sizeof(touchValue);
+            EEPROM.get(currentEPos, touchValue); touchTop = touchValue; currentEPos += sizeof(touchValue);
+            EEPROM.get(currentEPos, touchValue); touchBottom = touchValue; currentEPos += sizeof(touchValue);
+            touchCalibrationValid = true;
+          } else {
+            touchCalibrationValid = false;
+            currentEPos += sizeof(touchValue) * 4;
+          }
 
       if (currentEPos > dataRequired) log_system_message("ERROR: Not enough space reserved for eeprom");
       else log_system_message("Data read from eeprom");
@@ -893,7 +1088,23 @@ void settingsEeprom(bool eDirection) {
 
         // current coordinate system in use
           EEPROM.put(currentEPos, currentCoord);
-          currentEPos += sizeof(currentCoord);     
+          currentEPos += sizeof(currentCoord);
+
+        // touchscreen calibration data
+          EEPROM.put(currentEPos, TOUCH_CAL_SIGNATURE);
+          currentEPos += sizeof(touchSig);
+          touchValue = touchLeft;
+          EEPROM.put(currentEPos, touchValue);
+          currentEPos += sizeof(touchValue);
+          touchValue = touchRight;
+          EEPROM.put(currentEPos, touchValue);
+          currentEPos += sizeof(touchValue);
+          touchValue = touchTop;
+          EEPROM.put(currentEPos, touchValue);
+          currentEPos += sizeof(touchValue);
+          touchValue = touchBottom;
+          EEPROM.put(currentEPos, touchValue);
+          currentEPos += sizeof(touchValue);
 
       EEPROM.commit();                                // write the data out (required on esp devices as they simulate eeprom)
       if (currentEPos > dataRequired) log_system_message("ERROR: Not enough space reserved to store to eeprom");
@@ -1043,8 +1254,8 @@ void actionScreenRelease(TS_Point p) {
 void actionScreenTouch(TS_Point p) {
 
   // calculate position on screen
-    int x = map(p.x, TOUCH_LEFT, TOUCH_RIGHT, 0, SCREEN_WIDTH);  
-    int y = map(p.y, TOUCH_TOP, TOUCH_BOTTOM, 0, SCREEN_HEIGHT);  
+    int x = map(p.x, touchLeft, touchRight, 0, SCREEN_WIDTH);  
+    int y = map(p.y, touchTop, touchBottom, 0, SCREEN_HEIGHT);  
     if (serialDebug) Serial.println("Touch data: " + String(p.x) + "," + String(p.y) + "," + String(x) + "," + String(y));    
 
   // check if a button has been pressed
@@ -1169,52 +1380,41 @@ void displayReadings(bool clearFirst) {
 
     char buff[50];
 
-    for (int c = 0; c < caliperCount; c++) {
-        if (!calipers[c].enabled) continue;
+    // calipers
+      for (int c=0; c < caliperCount; c++) {
+        if (clearFirst) tft.drawString(" ", 0, c * tft.fontHeight());                             // clear display first if requested
+        if (axisVisible(c)) {
+          float tReading;
+          float caliperAdj;
+          unsigned long lastRead;
+          int caliperError;
+          portENTER_CRITICAL(&caliperMux);
+          tReading = calipers[c].reading;
+          caliperAdj = calipers[c].adj[currentCoord];
+          lastRead = calipers[c].lastReadTime;
+          caliperError = calipers[c].error;
+          portEXIT_CRITICAL(&caliperMux);
 
-        float tReading = calipers[c].reading - calipers[c].adj[currentCoord] - gcodeDROadj[c];
-        sprintf(buff, spa.c_str(), tReading);
+          tReading = tReading - caliperAdj - gcodeDROadj[c];  // calculate current reading
+          sprintf(buff, spa.c_str(), tReading);                                                   // format the reading for display
 
-        int y = c * rowH + 4;
+          // display the most recent reading if it is valid
+          if (tReading >= lowestAllowedReading && tReading <= highestAllowedReading && lastRead != 0) {
+            tft.drawString(buff, 0, c * tft.fontHeight());    
+          }
 
-        // clear row if requested
-        if (clearFirst) tft.fillRect(0, y, DROwidth, rowH, TFT_BLACK);
-
-        // connection status dot
-        bool connected = calipers[c].lastReadTime != 0 && (millis() - calipers[c].lastReadTime < 5000);
-        tft.fillCircle(labelX + 4, y + 12, 3, connected ? TFT_GREEN : TFT_RED);
-
-        // axis label
-        tft.setFreeFont(FM9);
-        tft.setTextColor(colLabel, TFT_BLACK);
-        tft.setTextSize(1);
-        tft.drawString(calipers[c].title, labelX + 14, y + 4);
-
-        // validity
-        bool valid = tReading >= lowestAllowedReading && tReading <= highestAllowedReading && calipers[c].lastReadTime != 0;
-        bool stale = valid && (millis() - calipers[c].lastReadTime > warningTimeLimit);
-
-        // value with 7-seg font
-        if (displayingPage == 1) tft.setFreeFont(&sevenSeg35pt7b);
-        else tft.setFreeFont(&sevenSeg16pt7b);
-        tft.setTextSize(1);
-        tft.setTextPadding(tft.textWidth("8") * (DROnoOfDigits1 + DROnoOfDigits2));
-
-        if (valid && !stale) {
-            tft.setTextColor(colValue, TFT_BLACK);
-        } else if (valid && stale) {
-            tft.setTextColor(colStale, TFT_BLACK);
-        } else {
-            tft.setTextColor(colError, TFT_BLACK);
-            if (showDROerrors && calipers[c].error != 0) {
-                String tErr = "Error" + String(calipers[c].error);
-                strcpy(buff, tErr.c_str());
+          // if show errors is set
+          if (showDROerrors) {                                            // if a read error is flagged
+            if (caliperError != 0) {
+                String tErr = "Error" + String(caliperError);
+                tft.drawString(tErr.c_str(), 0, c * tft.fontHeight());    // show error code            
+            } else if (tReading >= lowestAllowedReading && tReading <= highestAllowedReading) {
+              tft.drawString(buff, 0, c * tft.fontHeight());              // show the invalid reading
             }
-            if (serialDebug && calipers[c].error != 0)
-                Serial.println("Invalid reading from " + calipers[c].title + " " + String(buff));
+            if (serialDebug) Serial.println("Invalid reading from " + calipers[c].title + " " + String(buff));          
+          }
         }
-        tft.drawString(buff, valueX, y);
-    }
+      }
 
     // separator lines
     for (int c = 0; c < caliperCount - 1; c++) {
@@ -1268,8 +1468,8 @@ void handleTouch() {
         tft.drawCircle(x, y, radius, TFT_RED);    
         tft.fillCircle(x, y, radius - 1, TFT_YELLOW);
       // map from screen to touch coordinates
-        x = map(x, 0, SCREEN_WIDTH, TOUCH_LEFT, TOUCH_RIGHT);
-        y = map(y, 0, SCREEN_HEIGHT, TOUCH_TOP, TOUCH_BOTTOM);    
+        x = map(x, 0, SCREEN_WIDTH, touchLeft, touchRight);
+        y = map(y, 0, SCREEN_HEIGHT, touchTop, touchBottom);    
       // send click
         TS_Point click = TS_Point(x, y, 3000);
         actionScreenTouch(click);
