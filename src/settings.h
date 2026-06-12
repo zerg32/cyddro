@@ -31,7 +31,7 @@
   const bool serialDebug = 0;                            // provide debug info on serial port  (disable if using Tx or Rx gpio pins for caliper)
   const int serialSpeed = 115200;                        // Serial data speed to use  
 
-  const bool invertCaliperDataSignals = 1;               // If using transistors on the data and clock pins the signals will be inverted so set this to 1
+  const bool invertCaliperDataSignals = 0;               // BIN6 reader handles inversion internally
 
   // web page
     const int gcodeTextHeight = 15;                      // Size of text box on main web page for entering gcode
@@ -85,14 +85,14 @@
       const int caliperCount = 3;               // number of calipers below
       
       caliperStruct calipers[] {  
-        // Items: Axis name (single character, upper case), if enabled, clock gpio pin, data gpio pin, direction (1=reversed), 0, 0.0, 0, {0.0}
-        // NOTE: Some of the menus and buttons expect there to be 3 axes but you can set the enabled to '0' if they are not required
-
-        { "X", 1,  0,  4, 0, 0, 0.0, 0, {0.0} },        // Note: pin 0 is the onboard button (it can stop the device rebooting after programming)
+        // X and Z axes with BIN6 protocol (74HC14 level shifter)
+        // Items: Axis name, enabled, clock gpio, data gpio, direction, 0, 0.0, 0, {0.0}
         
-        { "Y", 1, 17, 16, 0, 0, 0.0, 0, {0.0} },
+        { "X", 1, 27, 22, 0, 0, 0.0, 0, {0.0} },        // CLK=27 DATA=22
         
-        { "Z", 1, 22,  5, 0, 0, 0.0, 0, {0.0} }         // Note: pin 5 is used by the SD card (chip select)
+        { "Y", 0, 17, 16, 0, 0, 0.0, 0, {0.0} },        // disabled Y
+        
+        { "Z", 1, 35,  5, 0, 0, 0.0, 0, {0.0} }         // CLK=35 DATA=5  (sacrifices SD card CS)
         
       };
 

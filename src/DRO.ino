@@ -89,6 +89,7 @@
 #include <Arduino.h>                      // required to use Strings 
 String enteredGcode;                      // store for the entered gcode on web page
 #include "settings.h"                     // load in settings for the DRO from settings.h file
+#include "bin6_reader.h"                  // BIN6 protocol decoder for Shahe scales
 
 #include <esp_task_wdt.h>                 // watchdog timer   - see: https://iotassistant.io/esp32/enable-hardware-watchdog-timer-esp32-arduino-ide/     
 
@@ -494,15 +495,10 @@ void setup() {
   //delay(1000); 
   //tft.fillScreen(TFT_BLACK);             // Clear the screen 
   
-  // caliper gpio pins
-    for (int x=0; x < caliperCount; x++) {
-      if (calipers[x].enabled) {
-        pinMode(calipers[x].clockPIN, INPUT);
-        pinMode(calipers[x].dataPIN, INPUT);
-      }
-    }
+  // init BIN6 readers (interrupt-based, replaces old synchronous caliper reader)
+    bin6_init();
   
-  // get readings from calipers     
+  // get readings from BIN6 scales
     int tCount = 4;                      // Maximum number of attempts
     bool q = 0;
     while (tCount > 0 && q == 0) {
@@ -537,6 +533,10 @@ void setup() {
 void loop() {
 
   if(wifiEnabled) server.handleClient();                  // service any web page requests
+
+  #ifdef SIMULATE_SCALES
+    simulate_scales();
+  #endif
 
   refreshCalipers(2);                                     // refresh readings from calipers 
 
@@ -1141,83 +1141,7 @@ void drawScreen(int screen) {
 }
 
 
-// ----------------------------------------------------------------
-//        -wait for gpio pin to be at the specified state 
-// ----------------------------------------------------------------
-// returns 0 if it times out (used by 'read caliper data')
-
-bool waitPinState(int pin, bool state, int timeout) {
-  unsigned long timeoutMicros = micros() + timeout;      // what micros() will be when timeout is reached
-  while(digitalRead(pin) != state && micros() < timeoutMicros) { }
-  if (micros() >= timeoutMicros) return 0;
-  return 1;
-}
-
-
-// ----------------------------------------------------------------
-//                       -read caliper data
-// ----------------------------------------------------------------
-// The data is sent continually as a 24bit data stream.  The data takes 9ms with a 115ms gap between (i.e. around 8 times a second) 
-//    streams by measuring how long the clock pin was high for then we read in the the data
-
-float readCaliper(int caliperNumber) {
-
-  // data timings (microseconds)
-    const int longPeriod = 900;                                // minimum length of time which counts as a long period  
-    const int lTimeout = 125000;                               // timeout when waiting for start of data  
-    const int sTimeout = 800;                                  // timeout when reading data bits 
-
-  // logic levels on data and clock pins (if using a transistor to level shift then these will be inverted)
-    const bool pinLOW = invertCaliperDataSignals;
-    const bool pinHIGH = !invertCaliperDataSignals;
-
-  calipers[caliperNumber].error = 0;                           // reset caliper read error flag
-
-  // start of data is preceded by clock being high for long period so verify we are at this point (this is the case most of the time)
-    if (!waitPinState(calipers[caliperNumber].clockPIN, pinHIGH, lTimeout)) {       // if clock is low wait until it is high
-      calipers[caliperNumber].error = 2;
-      return calipers[caliperNumber].reading;                                       // return previous reading  
-    }
-    unsigned long tmpTime=micros();                            // start timer
-    if (!waitPinState(calipers[caliperNumber].clockPIN, pinLOW, lTimeout)) {        // wait for clock pin to go low
-        calipers[caliperNumber].error = 3;
-        return calipers[caliperNumber].reading;                                     // return previous reading  
-    }
-    if ((micros() - tmpTime) < longPeriod) {                   // verify it was high for a long period signifying start of data 
-      calipers[caliperNumber].error = 4;
-      return calipers[caliperNumber].reading;                          // return previous reading     
-    }
-
-  // start of data confirmed so now read in the data
-    int sign = 1;                                              // if the reading is negative (1 or -1)
-    int inches = 0;                                            // if data is in inches or mm (0 = mm) 
-    long value = 0;                                            // the measurement received  
-    for(int i=0;i<24;i++) {                                    // step through the data bits 
-      if (!waitPinState(calipers[caliperNumber].clockPIN, pinLOW, sTimeout)) {      // If clock is not low wait until it is
-        calipers[caliperNumber].error = 5;
-        return calipers[caliperNumber].reading;                                             // return previous reading 
-      }      
-      if (!waitPinState(calipers[caliperNumber].clockPIN, pinHIGH, sTimeout)) {     // wait for clock pin to go HIGH (this tells us the next data bit is ready to be read)
-        calipers[caliperNumber].error = 6;
-        return calipers[caliperNumber].reading;                                             // return previous reading 
-      }        
-      if(digitalRead(calipers[caliperNumber].dataPIN) == pinHIGH) {                 // read data bit - if it is 1 then act upon this (0 can be ignored as all bits defult to 0)
-          if(i<20) value|=(1<<i);                              // shift the 19 bits in to read value
-          if(i==20) sign=-1;                                   // if reading is positive or negative
-          if(i==23) inches=1;                                  // if reading is in inches or mm
-      } 
-    }
-
-  // convert result to measurement
-    float tRes;
-    if (inches) tRes = (value * sign) / 2000.00;               // inches
-    else tRes = (value * sign) / 100.00;                       // mm
-
-  // reverse direction if required
-    if (calipers[caliperNumber].direction) tRes = -tRes;
-
-  return tRes;
-}
+// readCaliper replaced by bin6_reader.h (interrupt-based BIN6 decoder)
 
 
 // ----------------------------------------------------------------
@@ -1226,51 +1150,82 @@ float readCaliper(int caliperNumber) {
 
 void displayReadings(bool clearFirst) {
 
-    const unsigned long warningTimeLimit = 2000;    // if caliper reading has not updated in this time change display to blue (ms)
+    const unsigned long warningTimeLimit = 2000;
 
-    // create sprint argument  (in the format "%07.2f")
-      String spa = "%0" + String(DROnoOfDigits1 + DROnoOfDigits2 + 1) + "." + String(DROnoOfDigits2) + "f";    // https://alvinalexander.com/programming/printf-format-cheat-sheet/
-   
-    // font size
-      if (displayingPage == 1) tft.setFreeFont(&sevenSeg35pt7b);                                   // seven segment style font from sevenSeg.h  
-      else tft.setFreeFont(&sevenSeg16pt7b);
+    // color palette
+    const uint16_t colValue = TFT_GREENYELLOW;
+    const uint16_t colStale = TFT_ORANGE;
+    const uint16_t colError = TFT_RED;
+    const uint16_t colLabel = TFT_CYAN;
+    const uint16_t colSep   = 0x2104; // dim grey
 
-    // Cheap Yellow Display
-      tft.setTextColor(TFT_RED, TFT_BLACK);
-      tft.setTextSize(1);
-      tft.setTextPadding( tft.textWidth("8") * (DROnoOfDigits1 + DROnoOfDigits2) );                // this clears the previous text
+    // format string: "%07.2f"
+    String spa = "%0" + String(DROnoOfDigits1 + DROnoOfDigits2 + 1) + "." + String(DROnoOfDigits2) + "f";
+
+    // row height for 2-axis layout
+    const int rowH = 58;
+    const int labelX = 5;
+    const int valueX = 30;
 
     char buff[50];
 
-    // calipers
-      for (int c=0; c < caliperCount; c++) {
-        if (clearFirst) tft.drawString(" ", 0, c * tft.fontHeight());                             // clear display first if requested
-        if (calipers[c].enabled) {
-          float tReading = calipers[c].reading - calipers[c].adj[currentCoord] - gcodeDROadj[c];  // calculate current reading
-          sprintf(buff, spa.c_str(), tReading);                                                   // format the reading for display
+    for (int c = 0; c < caliperCount; c++) {
+        if (!calipers[c].enabled) continue;
 
-          // display the most recent reading if it is valid
-            if (tReading >= lowestAllowedReading && tReading <= highestAllowedReading && calipers[c].lastReadTime != 0) {
-              tft.drawString(buff, 0, c * tft.fontHeight());    
-            } 
+        float tReading = calipers[c].reading - calipers[c].adj[currentCoord] - gcodeDROadj[c];
+        sprintf(buff, spa.c_str(), tReading);
 
-          // if show errors is set
-            if (showDROerrors) {                                            // if a read error is flagged
-              if (calipers[c].error != 0) {
-                  String tErr = "Error" + String(calipers[c].error);
-                  tft.drawString(tErr.c_str(), 0, c * tft.fontHeight());    // show error code            
-              } else if (tReading >= lowestAllowedReading && tReading <= highestAllowedReading) {
-                tft.drawString(buff, 0, c * tft.fontHeight());              // show the invalid reading
-              }
-              if (serialDebug) Serial.println("Invalid reading from " + calipers[c].title + " " + String(buff));          
+        int y = c * rowH + 4;
+
+        // clear row if requested
+        if (clearFirst) tft.fillRect(0, y, DROwidth, rowH, TFT_BLACK);
+
+        // connection status dot
+        bool connected = calipers[c].lastReadTime != 0 && (millis() - calipers[c].lastReadTime < 5000);
+        tft.fillCircle(labelX + 4, y + 12, 3, connected ? TFT_GREEN : TFT_RED);
+
+        // axis label
+        tft.setFreeFont(FM9);
+        tft.setTextColor(colLabel, TFT_BLACK);
+        tft.setTextSize(1);
+        tft.drawString(calipers[c].title, labelX + 14, y + 4);
+
+        // validity
+        bool valid = tReading >= lowestAllowedReading && tReading <= highestAllowedReading && calipers[c].lastReadTime != 0;
+        bool stale = valid && (millis() - calipers[c].lastReadTime > warningTimeLimit);
+
+        // value with 7-seg font
+        if (displayingPage == 1) tft.setFreeFont(&sevenSeg35pt7b);
+        else tft.setFreeFont(&sevenSeg16pt7b);
+        tft.setTextSize(1);
+        tft.setTextPadding(tft.textWidth("8") * (DROnoOfDigits1 + DROnoOfDigits2));
+
+        if (valid && !stale) {
+            tft.setTextColor(colValue, TFT_BLACK);
+        } else if (valid && stale) {
+            tft.setTextColor(colStale, TFT_BLACK);
+        } else {
+            tft.setTextColor(colError, TFT_BLACK);
+            if (showDROerrors && calipers[c].error != 0) {
+                String tErr = "Error" + String(calipers[c].error);
+                strcpy(buff, tErr.c_str());
             }
+            if (serialDebug && calipers[c].error != 0)
+                Serial.println("Invalid reading from " + calipers[c].title + " " + String(buff));
         }
-      }
-   
-    tft.setFreeFont(FM12);        // switch back to standard Free Mono font - available sizes: 9, 12, 18 or 24   
-    tft.setTextPadding(0);        // clear the padding setting
+        tft.drawString(buff, valueX, y);
+    }
 
-    tft.setTextPadding(0);        // turn off text padding
+    // separator lines
+    for (int c = 0; c < caliperCount - 1; c++) {
+        if (calipers[c].enabled) {
+            int y = (c + 1) * rowH + 1;
+            tft.drawFastHLine(0, y, SCREEN_WIDTH - pageButtonWidth, colSep);
+        }
+    }
+
+    tft.setFreeFont(FM12);
+    tft.setTextPadding(0);
 }
 
 
